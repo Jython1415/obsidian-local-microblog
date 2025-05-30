@@ -106,7 +106,6 @@ styles.css           # Plugin styles
 - **Status.lol Plugin**: Microblogging with Daily Notes integration
 - **Journals Plugin**: Timeline views with calendar navigation - excellent UI reference
 - **Easy Timeline**: Simple chronological rendering
-- **Multiple Timeline Plugins**: Various approaches to chronological views
 
 ## Troubleshooting
 
