@@ -1,85 +1,139 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, CachedMetadata } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
-
-interface MyPluginSettings {
-	mySetting: string;
+interface MicroblogPost {
+	file: TFile;
+	created: string;
+	type: 'post' | 'reply' | 'quote';
+	replyTo?: string;
+	quoteTo?: string;
+	content: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+interface LocalMicroblogSettings {
+	microblogFolder: string;
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+const DEFAULT_SETTINGS: LocalMicroblogSettings = {
+	microblogFolder: 'Microblogs'
+}
+
+export default class LocalMicroblogPlugin extends Plugin {
+	settings: LocalMicroblogSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.addRibbonIcon('message-circle', 'Local Microblog', () => {
+			new MicroblogTimelineModal(this.app, this).open();
 		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
+			id: 'create-microblog-post',
+			name: 'Create microblog post',
 			callback: () => {
-				new SampleModal(this.app).open();
+				this.createMicroblogPost();
 			}
 		});
-		// This adds an editor command that can perform some operation on the current editor instance
+
 		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
+			id: 'open-microblog-timeline',
+			name: 'Open microblog timeline',
+			callback: () => {
+				new MicroblogTimelineModal(this.app, this).open();
 			}
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		this.addSettingTab(new LocalMicroblogSettingTab(this.app, this));
 	}
 
 	onunload() {
 
+	}
+
+	async createMicroblogPost() {
+		const folderPath = this.settings.microblogFolder;
+		const folder = this.app.vault.getAbstractFileByPath(folderPath);
+		
+		if (!folder) {
+			await this.app.vault.createFolder(folderPath);
+		}
+
+		const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+		const fileName = `microblog-${timestamp}.md`;
+		const filePath = `${folderPath}/${fileName}`;
+
+		const content = `---
+type: microblog
+created: ${new Date().toISOString()}
+---
+
+# 
+
+`;
+
+		await this.app.vault.create(filePath, content);
+		const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+		if (file) {
+			await this.app.workspace.getLeaf().openFile(file);
+		}
+	}
+
+	async getMicroblogPosts(): Promise<MicroblogPost[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const microblogPosts: MicroblogPost[] = [];
+
+		for (const file of files) {
+			const metadata = this.app.metadataCache.getFileCache(file);
+			if (this.isMicroblogPost(metadata)) {
+				const content = await this.app.vault.cachedRead(file);
+				const frontmatter = metadata?.frontmatter;
+				
+				microblogPosts.push({
+					file,
+					created: frontmatter?.created || file.stat.ctime.toString(),
+					type: frontmatter?.type === 'reply' ? 'reply' : 
+						  frontmatter?.type === 'quote' ? 'quote' : 'post',
+					replyTo: frontmatter?.replyTo,
+					quoteTo: frontmatter?.quoteTo,
+					content: this.extractContentFromMarkdown(content)
+				});
+			}
+		}
+
+		return microblogPosts.sort((a, b) => 
+			new Date(b.created).getTime() - new Date(a.created).getTime()
+		);
+	}
+
+	private isMicroblogPost(metadata: CachedMetadata | null): boolean {
+		return metadata?.frontmatter?.type === 'microblog' ||
+			   metadata?.frontmatter?.type === 'reply' ||
+			   metadata?.frontmatter?.type === 'quote';
+	}
+
+	private extractContentFromMarkdown(content: string): string {
+		const lines = content.split('\n');
+		let inFrontmatter = false;
+		let frontmatterEnded = false;
+		const contentLines: string[] = [];
+
+		for (const line of lines) {
+			if (line.trim() === '---') {
+				if (!inFrontmatter) {
+					inFrontmatter = true;
+				} else {
+					frontmatterEnded = true;
+					inFrontmatter = false;
+				}
+				continue;
+			}
+
+			if (frontmatterEnded || (!inFrontmatter && !line.trim().startsWith('---'))) {
+				contentLines.push(line);
+			}
+		}
+
+		return contentLines.join('\n').trim();
 	}
 
 	async loadSettings() {
@@ -91,14 +145,62 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
+class MicroblogTimelineModal extends Modal {
+	plugin: LocalMicroblogPlugin;
+
+	constructor(app: App, plugin: LocalMicroblogPlugin) {
 		super(app);
+		this.plugin = plugin;
 	}
 
 	onOpen() {
+		this.displayTimeline();
+	}
+
+	async displayTimeline() {
 		const {contentEl} = this;
-		contentEl.setText('Woah!');
+		contentEl.empty();
+		
+		contentEl.createEl('h2', {text: 'Microblog Timeline'});
+		
+		const posts = await this.plugin.getMicroblogPosts();
+		
+		if (posts.length === 0) {
+			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
+			return;
+		}
+
+		const timelineContainer = contentEl.createDiv('microblog-timeline');
+		
+		for (const post of posts) {
+			const postEl = timelineContainer.createDiv('microblog-post');
+			
+			const headerEl = postEl.createDiv('microblog-header');
+			const dateEl = headerEl.createSpan('microblog-date');
+			dateEl.setText(new Date(post.created).toLocaleString());
+			
+			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
+			typeEl.setText(post.type);
+			
+			const contentEl = postEl.createDiv('microblog-content');
+			contentEl.innerHTML = this.renderMarkdown(post.content);
+			
+			const actionsEl = postEl.createDiv('microblog-actions');
+			const openBtn = actionsEl.createEl('button', {text: 'Open'});
+			openBtn.onclick = () => {
+				this.app.workspace.getLeaf().openFile(post.file);
+				this.close();
+			};
+		}
+	}
+
+	private renderMarkdown(content: string): string {
+		return content
+			.replace(/^# (.+)$/gm, '<h1>$1</h1>')
+			.replace(/^## (.+)$/gm, '<h2>$1</h2>')
+			.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+			.replace(/\*(.+?)\*/g, '<em>$1</em>')
+			.replace(/\n/g, '<br>');
 	}
 
 	onClose() {
@@ -107,10 +209,10 @@ class SampleModal extends Modal {
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+class LocalMicroblogSettingTab extends PluginSettingTab {
+	plugin: LocalMicroblogPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: LocalMicroblogPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -120,14 +222,16 @@ class SampleSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
+		containerEl.createEl('h2', {text: 'Local Microblog Settings'});
+
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
+			.setName('Microblog folder')
+			.setDesc('Folder where microblog posts will be stored')
 			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
+				.setPlaceholder('Microblogs')
+				.setValue(this.plugin.settings.microblogFolder)
 				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.microblogFolder = value;
 					await this.plugin.saveSettings();
 				}));
 	}
