@@ -7,6 +7,7 @@ interface MicroblogPost {
 	replyTo?: string;
 	quoteTo?: string;
 	content: string;
+	threadDepth?: number;
 }
 
 interface LocalMicroblogSettings {
@@ -117,8 +118,14 @@ lm_reply: "${activeFile.name}"
 lm_created: ${new Date().toISOString()}
 ---
 
+Reply to:
+
+![[${activeFile.name.replace('.md', '')}]]
+
+<!-- microblog-content-start -->
 # 
 
+<!-- microblog-content-end -->
 `;
 
 		await this.app.vault.create(filePath, content);
@@ -150,9 +157,40 @@ lm_created: ${new Date().toISOString()}
 			}
 		}
 
-		return microblogPosts.sort((a, b) => 
+		const sortedPosts = microblogPosts.sort((a, b) => 
 			new Date(b.created).getTime() - new Date(a.created).getTime()
 		);
+
+		return this.organizeIntoThreads(sortedPosts);
+	}
+
+	private organizeIntoThreads(posts: MicroblogPost[]): MicroblogPost[] {
+		const postMap = new Map<string, MicroblogPost>();
+		const threadedPosts: MicroblogPost[] = [];
+		
+		posts.forEach(post => postMap.set(post.file.name, post));
+		
+		for (const post of posts) {
+			if (!post.replyTo) {
+				post.threadDepth = 0;
+				threadedPosts.push(post);
+				this.addRepliesToThread(post, postMap, threadedPosts, 1);
+			}
+		}
+		
+		return threadedPosts;
+	}
+	
+	private addRepliesToThread(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>, threadedPosts: MicroblogPost[], depth: number) {
+		const replies = Array.from(postMap.values())
+			.filter(post => post.replyTo === parentPost.file.name)
+			.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
+		
+		for (const reply of replies) {
+			reply.threadDepth = depth;
+			threadedPosts.push(reply);
+			this.addRepliesToThread(reply, postMap, threadedPosts, depth + 1);
+		}
 	}
 
 	private isMicroblogPost(metadata: CachedMetadata | null): boolean {
@@ -163,6 +201,7 @@ lm_created: ${new Date().toISOString()}
 		const lines = content.split('\n');
 		let inFrontmatter = false;
 		let frontmatterEnded = false;
+		let contentStarted = false;
 		const contentLines: string[] = [];
 
 		for (const line of lines) {
@@ -177,7 +216,18 @@ lm_created: ${new Date().toISOString()}
 			}
 
 			if (frontmatterEnded || (!inFrontmatter && !line.trim().startsWith('---'))) {
-				contentLines.push(line);
+				if (line.includes('<!-- microblog-content-start -->')) {
+					contentStarted = true;
+					continue;
+				}
+				if (line.includes('<!-- microblog-content-end -->')) {
+					break;
+				}
+				if (contentStarted) {
+					contentLines.push(line);
+				} else if (!line.includes('![[') && !line.includes('Reply to:')) {
+					contentLines.push(line);
+				}
 			}
 		}
 
@@ -223,12 +273,27 @@ class MicroblogTimelineModal extends Modal {
 		for (const post of posts) {
 			const postEl = timelineContainer.createDiv('microblog-post');
 			
+			if (post.threadDepth && post.threadDepth > 0) {
+				postEl.style.marginLeft = `${post.threadDepth * 20}px`;
+				postEl.style.borderLeft = '2px solid #444';
+				postEl.style.paddingLeft = '10px';
+			}
+			
 			const headerEl = postEl.createDiv('microblog-header');
 			const dateEl = headerEl.createSpan('microblog-date');
 			dateEl.setText(new Date(post.created).toLocaleString());
 			
 			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
-			typeEl.setText(post.type);
+			if (post.type === 'reply' && post.replyTo) {
+				const replyToFile = this.plugin.app.vault.getAbstractFileByPath(post.replyTo);
+				if (!replyToFile) {
+					typeEl.setText('reply to [missing post]');
+				} else {
+					typeEl.setText(post.type);
+				}
+			} else {
+				typeEl.setText(post.type);
+			}
 			
 			const contentEl = postEl.createDiv('microblog-content');
 			contentEl.innerHTML = this.renderMarkdown(post.content);
