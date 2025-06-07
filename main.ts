@@ -285,8 +285,9 @@ class MicroblogTimelineModal extends Modal {
 			
 			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
 			if (post.type === 'reply' && post.replyTo) {
-				const replyToFile = this.plugin.app.vault.getAbstractFileByPath(post.replyTo);
-				if (!replyToFile) {
+				// Check if the replied-to post exists in our posts collection
+				const replyToExists = posts.some(p => p.file.name === post.replyTo);
+				if (!replyToExists) {
 					typeEl.setText('reply to [missing post]');
 				} else {
 					typeEl.setText(post.type);
