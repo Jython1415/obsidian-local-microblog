@@ -43,6 +43,14 @@ export default class LocalMicroblogPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'create-reply-to-current',
+			name: 'Create reply to current post',
+			callback: () => {
+				this.createReplyToCurrentPost();
+			}
+		});
+
 		this.addSettingTab(new LocalMicroblogSettingTab(this.app, this));
 	}
 
@@ -63,8 +71,50 @@ export default class LocalMicroblogPlugin extends Plugin {
 		const filePath = `${folderPath}/${fileName}`;
 
 		const content = `---
-type: microblog
-created: ${new Date().toISOString()}
+lm_type: microblog
+lm_created: ${new Date().toISOString()}
+---
+
+# 
+
+`;
+
+		await this.app.vault.create(filePath, content);
+		const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+		if (file) {
+			await this.app.workspace.getLeaf().openFile(file);
+		}
+	}
+
+	async createReplyToCurrentPost() {
+		const activeFile = this.app.workspace.getActiveFile();
+		
+		if (!activeFile) {
+			new Notice('No active file to reply to');
+			return;
+		}
+
+		const metadata = this.app.metadataCache.getFileCache(activeFile);
+		if (!this.isMicroblogPost(metadata)) {
+			new Notice('Current file is not a microblog post');
+			return;
+		}
+
+		const folderPath = this.settings.microblogFolder;
+		const folder = this.app.vault.getAbstractFileByPath(folderPath);
+		
+		if (!folder) {
+			await this.app.vault.createFolder(folderPath);
+		}
+
+		const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+		const fileName = `microblog-${timestamp}.md`;
+		const filePath = `${folderPath}/${fileName}`;
+
+		const content = `---
+lm_type: microblog
+lm_reply: "${activeFile.name}"
+lm_created: ${new Date().toISOString()}
 ---
 
 # 
@@ -90,11 +140,11 @@ created: ${new Date().toISOString()}
 				
 				microblogPosts.push({
 					file,
-					created: frontmatter?.created || file.stat.ctime.toString(),
-					type: frontmatter?.type === 'reply' ? 'reply' : 
-						  frontmatter?.type === 'quote' ? 'quote' : 'post',
-					replyTo: frontmatter?.replyTo,
-					quoteTo: frontmatter?.quoteTo,
+					created: frontmatter?.lm_created || frontmatter?.created || file.stat.ctime.toString(),
+					type: frontmatter?.lm_reply ? 'reply' : 
+						  frontmatter?.lm_quote ? 'quote' : 'post',
+					replyTo: frontmatter?.lm_reply,
+					quoteTo: frontmatter?.lm_quote,
 					content: this.extractContentFromMarkdown(content)
 				});
 			}
@@ -106,9 +156,7 @@ created: ${new Date().toISOString()}
 	}
 
 	private isMicroblogPost(metadata: CachedMetadata | null): boolean {
-		return metadata?.frontmatter?.type === 'microblog' ||
-			   metadata?.frontmatter?.type === 'reply' ||
-			   metadata?.frontmatter?.type === 'quote';
+		return metadata?.frontmatter?.lm_type === 'microblog';
 	}
 
 	private extractContentFromMarkdown(content: string): string {

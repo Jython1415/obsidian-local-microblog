@@ -192,27 +192,63 @@ lm_created: 2025-06-06T10:30:00Z
 - ❌ Full WYSIWYG editing in timeline
 - ❌ Advanced threading UI (limited by Obsidian modal constraints)
 
-## Recommended Implementation Strategy
+## Incremental Implementation Strategy
 
-### Phase 1: Enhanced Type System
-1. Update type detection logic in `main.ts:108-112`
-2. Modify post creation template in `main.ts:65-72`
-3. Update timeline display logic in `main.ts:175-194`
+### Phase 1: Type System Foundation (Minimal Viable Change)
+**Goal:** Safe namespacing without breaking existing functionality
+1. Update type detection logic: `type: microblog` → `lm_type: microblog`
+2. Modify post creation template to use `lm_type`
+3. Update timeline display logic to detect `lm_type`
+**Test Criteria:** Timeline still works, post creation unchanged, no regressions
 
-### Phase 2: Reply Commands
-1. Add "Reply to Current Post" command
-2. Implement reply detection in current view
-3. Create reply template with `replyTo` metadata
+### Phase 2: Basic Reply Metadata (Add Data, No UI Changes)
+**Goal:** Enable reply creation without changing timeline display
+1. Add `lm_reply` field to post creation template
+2. Create "Reply to Current Post" command that:
+   - Detects current microblog file
+   - Creates new post with `lm_reply: "original-filename.md"`
+   - Opens new file for editing
+3. Timeline ignores reply metadata (displays all posts normally)
+**Test Criteria:** Reply files created with correct metadata, timeline unaffected
 
-### Phase 3: Timeline Threading
-1. Modify `getMicroblogPosts()` to build thread structures
-2. Update timeline display to show nested replies
-3. Add visual indicators for thread relationships
+### Phase 3: Thread Detection & Display (Make Replies Meaningful)
+**Goal:** Visual thread structure in timeline with content context
+1. Modify timeline to group posts by thread relationships
+2. Simple visual nesting: indent replies under original posts
+3. Add reply content structure with embedded context:
+   ```markdown
+   Reply to:
+   
+   ![[original-post]]
+   
+   <!-- microblog-content-start -->
+   My response content here...
+   <!-- microblog-content-end -->
+   ```
+4. Implement content extraction using HTML comment markers
+5. Handle missing references with "Reply to [missing post]" fallback
+6. No depth limits or overflow handling yet
+**Test Criteria:** Threads display correctly with context, content extraction works, no broken references crash timeline
 
-### Phase 4: Timeline Actions
-1. Add reply/quote buttons to timeline posts
-2. Implement modal-based creation workflow
-3. Add timeline refresh mechanisms
+### Phase 4: Thread Polish (Handle Edge Cases)
+**Goal:** Clean display for complex thread structures
+1. Add depth limits: maximum 3 posts visible per thread
+2. Add overflow indicators: "X more in thread" with expand functionality
+3. Implement chronological constraint (replies only to past posts)
+**Test Criteria:** Complex threads display cleanly, no performance issues
+
+### Phase 5: Quote Support (Parallel Feature)
+**Goal:** Quote functionality alongside existing reply system
+1. Add `lm_quote` metadata field
+2. Create "Quote Current Post" command
+3. Timeline shows quoted content inline or with indicators
+**Test Criteria:** Quotes work independently and alongside replies
+
+### Removed from Initial Scope
+- Hybrid content structure with HTML comments (too complex)
+- Timeline-based creation workflow (focus on commands first)
+- Rich embed integration (can be added later)
+- Complex interaction displays (start simple)
 
 ## Command Invocation from Timeline
 
@@ -236,95 +272,83 @@ replyBtn.onclick = () => {
 
 **Key insight:** Commands are UI shortcuts to plugin methods. Timeline can call the same methods directly.
 
-## Link Format Implementation
+## Link Format for Phase 2
 
-### YAML Frontmatter Limitation
+### YAML Frontmatter Approach
 **Discovery**: Obsidian does **NOT** natively support `[[]]` wikilinks in YAML frontmatter. This is a long-standing feature request but remains unimplemented.
 
-### Chosen Solution: Hybrid Approach
-
-**YAML Properties** (for plugin resolution):
+**Solution**: Use simple filename strings in YAML:
 ```yaml
 ---
 lm_type: microblog
 lm_reply: "microblog-2025-06-06T10-30-00Z.md"  # File name for easy lookup
-lm_quote: "some-other-post.md"
+lm_quote: "some-other-post.md"  # Added in Phase 5
 lm_created: 2025-06-06T10-30-00Z
 ---
 ```
 
-**Content Structure** (for Obsidian integration):
-```markdown
-Reply to:
-
-![[microblog-2025-06-06T10-30-00Z]]
-
-<!-- microblog-content-start -->
-My response content here...
-<!-- microblog-content-end -->
-```
-
-### Benefits of This Approach
+### Benefits
 - **Plugin efficiency**: File names resolve easily to TFile objects
 - **Stability**: File names change less frequently than titles
 - **Human readable**: Clear what's being referenced in YAML
-- **Graph integration**: `![[]]` embeds create proper backlinks
-- **Context**: Embedded content shows what's being replied to/quoted
-- **Native support**: Leverages Obsidian's existing embed system
-- **Clean extraction**: HTML comments mark content boundaries precisely
-- **Content flexibility**: Allows `---` and other markdown in post content
+- **File names are unique**: Already ensured by timestamp-based naming
 
-### Content Extraction Strategy
-Plugin extracts actual post content using HTML comment markers:
-```typescript
-// Look for content between markers
-if (line.includes('<!-- microblog-content-start -->')) {
-    contentStarted = true;
-    continue;
-}
-if (line.includes('<!-- microblog-content-end -->')) {
-    break;
-}
-```
+## Implementation Decisions (Resolved)
 
-### Implementation Notes
-- Plugin uses `lm_reply`/`lm_quote` values for thread detection
-- Content embeds provide visual context and graph connectivity
-- HTML comments are invisible in rendered view
-- File names must be unique (already ensured by timestamp-based naming)
-- Simple string matching avoids regex complexity
+### 1. Missing Reference Handling
+**Decision:** Display "missing link" indicators (graceful degradation)
+- If `lm_reply` file is deleted/renamed: Show as "Reply to [missing post]"
+- If `lm_quote` file is missing: Show as "Quoting [missing post]"
+- Timeline continues to function with broken references
 
-## Open Questions for Next Implementation Session
+### 2. Scope Limitations
+**Decision:** Microblog-to-microblog interactions only
+- Replies only target microblog posts (`lm_type: microblog`)
+- Quotes only reference microblog posts
+- No support for non-microblog file interactions
 
-### 1. Content Marker Edge Cases
-- What if user manually edits and removes/breaks the content markers?
-- Should we have fallback extraction logic?
-- What if content markers appear in code blocks or quoted text?
+### 3. Loop Prevention
+**Decision:** Chronological constraint prevents loops
+- Can only reply to posts created in the past
+- Natural ordering prevents circular references
+- No additional loop detection needed
 
-### 2. File Resolution Robustness
-- What happens if referenced file (`lm_reply: "file.md"`) gets deleted or renamed?
-- Should we validate file existence when creating replies/quotes?
-- How do we handle broken references in timeline display?
+### 4. Complex Interaction Display
+**Decision:** Simple independent display (complex cases deferred)
+- **Post with reply + quote:** Show both relationships independently in timeline
+- **Complex contextual navigation:** Deferred to future phases
+- **Initial approach:** Keep reply and quote displays separate and simple
 
-### 3. Template Generation
-- How does the "create reply" command know the target file's name?
-- What if target file doesn't exist in microblog folder?
-- Should we support replying to non-microblog files?
+### 5. Migration Strategy
+**Decision:** Hard cutover, no backward compatibility
+- Switch all posts from `type: microblog` to `lm_type: microblog`
+- No transition period or dual format support
+- Clean break for rapid iteration phase
 
-### 4. Timeline Threading Logic
-- How do we prevent infinite loops in reply chains?
-- What if `lm_reply` points to a file that also has `lm_reply` (chains)?
-- Should we limit displayed nesting depth even if data allows deeper?
+### 6. Content Extraction Fallback (Phase 3)
+**Decision:** Display full post minus frontmatter when markers missing
+- Primary: Extract between `<!-- microblog-content-start/end -->`
+- Fallback: Show entire content after frontmatter
+- Graceful degradation for manually edited posts
+- **Note:** Implemented alongside Phase 3 thread display
 
-### 5. Quote vs Reply Semantics
-- Can you reply to a quote? Quote a reply?
-- Should quotes show differently than replies in timeline?
-- What if a post has both `lm_reply` AND `lm_quote`?
+### 7. Thread Display Depth Limits
+**Decision:** Maximum 3 posts visible per thread
+- **Structure:** Original → [X more hidden] → Last 2 posts
+- **Overflow indicator:** "3 more in thread" with click-to-expand
+- **Navigation:** Click indicator to view full thread
 
-### 6. Migration Path
-- How do we update existing posts from `type: microblog` to `lm_type: microblog`?
-- Should we support both formats during transition?
+### 8. Creation Workflow
+**Decision:** Command-based creation from post view
+- Timeline for navigation/reading only (this sprint)
+- Commands available when viewing individual posts:
+  - "Create reply to current post"
+  - "Create quote of current post"
+- No timeline-based creation in initial implementation
+- No content pre-population required
 
-### 7. Content Marker Requirements
-- Are content markers required for ALL posts or just replies/quotes?
-- What about simple posts without references?
+### 9. File Naming
+**Decision:** Standard timestamp-based naming for all posts
+- No special naming convention for replies vs regular posts
+- Uniqueness ensured by timestamp: `microblog-2025-06-06T10-30-00Z.md`
+- Reply/quote relationship indicated only in metadata, not filename
