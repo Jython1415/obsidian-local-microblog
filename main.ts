@@ -544,7 +544,7 @@ class MicroblogTimelineModal extends Modal {
 		contentEl.createEl('h2', {text: 'Microblog Timeline'});
 		
 		// Filter to top-level posts only (including error-promoted posts)
-		const topLevelPosts = this.allPosts.filter(post => !post.replyTo);
+		const topLevelPosts = this.allPosts.filter(post => !post.replyTo && !post.isOverflowIndicator);
 		
 		if (topLevelPosts.length === 0) {
 			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
