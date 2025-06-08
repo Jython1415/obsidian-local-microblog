@@ -1,6 +1,6 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, CachedMetadata } from 'obsidian';
 
-interface MicroblogPost {
+export interface MicroblogPost {
 	file: TFile;
 	created: string;
 	type: 'post' | 'reply' | 'quote';

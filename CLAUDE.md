@@ -30,3 +30,7 @@
 - During implementation: keep spec updated with decisions and changes
 - After completion: move to `/docs/archive/` with date prefix
 - Roadmap tracks next priorities
+
+## Testing Setup Notes
+- TypeScript interface exports are essential for test file imports  
+- Manual testing refers to UI/UX functionality verification, not build checks
