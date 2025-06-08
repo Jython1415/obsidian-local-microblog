@@ -7,6 +7,9 @@ interface MicroblogPost {
 	replyTo?: string;
 	quoteTo?: string;
 	content: string;
+	replyCount?: number;
+	directReplies?: MicroblogPost[];
+	hasErrors?: boolean;
 	threadDepth?: number;
 	isOverflowIndicator?: boolean;
 	hiddenCount?: number;
@@ -209,9 +212,60 @@ Reply to:
 	private organizeIntoThreads(posts: MicroblogPost[]): MicroblogPost[] {
 		const postMap = new Map<string, MicroblogPost>();
 		const threadedPosts: MicroblogPost[] = [];
+		const processedPosts = new Set<string>();
 		
-		posts.forEach(post => postMap.set(post.file.name, post));
+		// First pass: build post map and detect orphaned/problematic posts
+		const problematicPosts: MicroblogPost[] = [];
+		for (const post of posts) {
+			postMap.set(post.file.name, post);
+			
+			// Check for circular references and self-replies
+			if (post.replyTo === post.file.name) {
+				// Self-reply: treat as top-level post
+				post.replyTo = undefined;
+				post.hasErrors = true;
+			} else if (post.replyTo && this.detectCircularReference(post, posts)) {
+				// Circular reference: promote to top-level
+				post.replyTo = undefined;
+				post.hasErrors = true;
+				problematicPosts.push(post);
+			}
+		}
 		
+		// Second pass: check for orphaned replies and build reply tree
+		for (const post of posts) {
+			if (post.replyTo && !postMap.has(post.replyTo)) {
+				// Orphaned reply: promote to top-level
+				post.replyTo = undefined;
+				post.hasErrors = true;
+				problematicPosts.push(post);
+			}
+		}
+		
+		// Third pass: build complete reply tree structure
+		for (const post of posts) {
+			post.directReplies = [];
+			post.replyCount = 0;
+		}
+		
+		for (const post of posts) {
+			if (post.replyTo && postMap.has(post.replyTo)) {
+				const parent = postMap.get(post.replyTo)!;
+				parent.directReplies!.push(post);
+			}
+		}
+		
+		// Sort direct replies chronologically and calculate reply counts
+		for (const post of posts) {
+			if (post.directReplies) {
+				post.directReplies.sort((a, b) => 
+					new Date(a.created).getTime() - new Date(b.created).getTime()
+				);
+				post.replyCount = post.directReplies.length;
+			}
+		}
+		
+		// Fourth pass: collect top-level posts (including error-promoted ones)
 		for (const post of posts) {
 			if (!post.replyTo) {
 				const threadId = post.file.name;
@@ -273,31 +327,111 @@ Reply to:
 	}
 	
 	private getAllRepliesInChain(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>): MicroblogPost[] {
-		const chain: MicroblogPost[] = [];
-		let currentParent = parentPost;
-		
-		while (true) {
-			const directReplies = Array.from(postMap.values())
-				.filter(post => post.replyTo === currentParent.file.name)
-				.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
+		// This method is now deprecated in favor of the directReplies structure
+		// but keeping for backward compatibility during transition
+		if (parentPost.directReplies && parentPost.directReplies.length > 0) {
+			// Return only the first reply chain for legacy overflow logic
+			const chain: MicroblogPost[] = [];
+			let currentPost = parentPost.directReplies[0];
 			
-			if (directReplies.length === 0) break;
+			while (currentPost) {
+				chain.push(currentPost);
+				if (currentPost.directReplies && currentPost.directReplies.length > 0) {
+					currentPost = currentPost.directReplies[0];
+				} else {
+					break;
+				}
+			}
 			
-			// For simplicity, follow the first reply in each chain
-			const nextReply = directReplies[0];
-			chain.push(nextReply);
-			currentParent = nextReply;
+			return chain;
 		}
 		
-		return chain;
+		return [];
+	}
+
+	private detectCircularReference(post: MicroblogPost, allPosts: MicroblogPost[]): boolean {
+		const visited = new Set<string>();
+		let currentPostName = post.replyTo;
+		
+		while (currentPostName) {
+			if (visited.has(currentPostName)) {
+				return true; // Circular reference detected
+			}
+			
+			if (currentPostName === post.file.name) {
+				return true; // Self-reference detected
+			}
+			
+			visited.add(currentPostName);
+			
+			// Find the parent post
+			const parentPost = allPosts.find(p => p.file.name === currentPostName);
+			if (!parentPost) {
+				break; // Parent not found, chain ends
+			}
+			
+			currentPostName = parentPost.replyTo;
+		}
+		
+		return false;
 	}
 
 	private organizeIntoThreadsWithoutLimits(posts: MicroblogPost[]): MicroblogPost[] {
 		const postMap = new Map<string, MicroblogPost>();
 		const threadedPosts: MicroblogPost[] = [];
 		
-		posts.forEach(post => postMap.set(post.file.name, post));
+		// First pass: build post map and detect orphaned/problematic posts
+		const problematicPosts: MicroblogPost[] = [];
+		for (const post of posts) {
+			postMap.set(post.file.name, post);
+			
+			// Check for circular references and self-replies
+			if (post.replyTo === post.file.name) {
+				// Self-reply: treat as top-level post
+				post.replyTo = undefined;
+				post.hasErrors = true;
+			} else if (post.replyTo && this.detectCircularReference(post, posts)) {
+				// Circular reference: promote to top-level
+				post.replyTo = undefined;
+				post.hasErrors = true;
+				problematicPosts.push(post);
+			}
+		}
 		
+		// Second pass: check for orphaned replies and build reply tree
+		for (const post of posts) {
+			if (post.replyTo && !postMap.has(post.replyTo)) {
+				// Orphaned reply: promote to top-level
+				post.replyTo = undefined;
+				post.hasErrors = true;
+				problematicPosts.push(post);
+			}
+		}
+		
+		// Third pass: build complete reply tree structure
+		for (const post of posts) {
+			post.directReplies = [];
+			post.replyCount = 0;
+		}
+		
+		for (const post of posts) {
+			if (post.replyTo && postMap.has(post.replyTo)) {
+				const parent = postMap.get(post.replyTo)!;
+				parent.directReplies!.push(post);
+			}
+		}
+		
+		// Sort direct replies chronologically and calculate reply counts
+		for (const post of posts) {
+			if (post.directReplies) {
+				post.directReplies.sort((a, b) => 
+					new Date(a.created).getTime() - new Date(b.created).getTime()
+				);
+				post.replyCount = post.directReplies.length;
+			}
+		}
+		
+		// Fourth pass: collect top-level posts and add all their replies
 		for (const post of posts) {
 			if (!post.replyTo) {
 				const threadId = post.file.name;
