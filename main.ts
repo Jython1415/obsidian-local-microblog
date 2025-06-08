@@ -8,6 +8,9 @@ interface MicroblogPost {
 	quoteTo?: string;
 	content: string;
 	threadDepth?: number;
+	isOverflowIndicator?: boolean;
+	hiddenCount?: number;
+	threadId?: string;
 }
 
 interface LocalMicroblogSettings {
@@ -101,6 +104,16 @@ lm_created: ${new Date().toISOString()}
 			return;
 		}
 
+		// Chronological constraint: only allow replies to past posts
+		const originalPostCreated = metadata?.frontmatter?.lm_created || metadata?.frontmatter?.created || activeFile.stat.ctime;
+		const originalPostDate = new Date(originalPostCreated);
+		const currentTime = new Date();
+		
+		if (originalPostDate > currentTime) {
+			new Notice('Cannot reply to a post created in the future');
+			return;
+		}
+
 		const folderPath = this.settings.microblogFolder;
 		const folder = this.app.vault.getAbstractFileByPath(folderPath);
 		
@@ -164,6 +177,35 @@ Reply to:
 		return this.organizeIntoThreads(sortedPosts);
 	}
 
+	async getMicroblogPostsWithoutLimits(): Promise<MicroblogPost[]> {
+		const files = this.app.vault.getMarkdownFiles();
+		const microblogPosts: MicroblogPost[] = [];
+
+		for (const file of files) {
+			const metadata = this.app.metadataCache.getFileCache(file);
+			if (this.isMicroblogPost(metadata)) {
+				const content = await this.app.vault.cachedRead(file);
+				const frontmatter = metadata?.frontmatter;
+				
+				microblogPosts.push({
+					file,
+					created: frontmatter?.lm_created || frontmatter?.created || file.stat.ctime.toString(),
+					type: frontmatter?.lm_reply ? 'reply' : 
+						  frontmatter?.lm_quote ? 'quote' : 'post',
+					replyTo: frontmatter?.lm_reply,
+					quoteTo: frontmatter?.lm_quote,
+					content: this.extractContentFromMarkdown(content)
+				});
+			}
+		}
+
+		const sortedPosts = microblogPosts.sort((a, b) => 
+			new Date(b.created).getTime() - new Date(a.created).getTime()
+		);
+
+		return this.organizeIntoThreadsWithoutLimits(sortedPosts);
+	}
+
 	private organizeIntoThreads(posts: MicroblogPost[]): MicroblogPost[] {
 		const postMap = new Map<string, MicroblogPost>();
 		const threadedPosts: MicroblogPost[] = [];
@@ -172,24 +214,113 @@ Reply to:
 		
 		for (const post of posts) {
 			if (!post.replyTo) {
+				const threadId = post.file.name;
 				post.threadDepth = 0;
+				post.threadId = threadId;
 				threadedPosts.push(post);
-				this.addRepliesToThread(post, postMap, threadedPosts, 1);
+				this.addRepliesToThreadWithLimits(post, postMap, threadedPosts, 1, threadId);
 			}
 		}
 		
 		return threadedPosts;
 	}
 	
-	private addRepliesToThread(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>, threadedPosts: MicroblogPost[], depth: number) {
+	private addRepliesToThreadWithLimits(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>, threadedPosts: MicroblogPost[], depth: number, threadId: string) {
+		const allReplies = this.getAllRepliesInChain(parentPost, postMap);
+		
+		if (allReplies.length === 0) return;
+		
+		const maxVisibleDepth = 3;
+		
+		if (allReplies.length <= maxVisibleDepth) {
+			// Show all replies normally
+			for (const reply of allReplies) {
+				reply.threadDepth = depth + allReplies.indexOf(reply);
+				reply.threadId = threadId;
+				threadedPosts.push(reply);
+			}
+		} else {
+			// Show first reply, overflow indicator, then last 2 replies
+			const firstReply = allReplies[0];
+			const lastTwoReplies = allReplies.slice(-2);
+			const hiddenCount = allReplies.length - 3;
+			
+			// Add first reply
+			firstReply.threadDepth = depth;
+			firstReply.threadId = threadId;
+			threadedPosts.push(firstReply);
+			
+			// Add overflow indicator
+			const overflowIndicator: MicroblogPost = {
+				file: parentPost.file, // Dummy file reference
+				created: '',
+				type: 'post',
+				content: '',
+				threadDepth: depth + 1,
+				isOverflowIndicator: true,
+				hiddenCount: hiddenCount,
+				threadId: threadId
+			};
+			threadedPosts.push(overflowIndicator);
+			
+			// Add last two replies
+			lastTwoReplies.forEach((reply, index) => {
+				reply.threadDepth = depth + 2 + index;
+				reply.threadId = threadId;
+				threadedPosts.push(reply);
+			});
+		}
+	}
+	
+	private getAllRepliesInChain(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>): MicroblogPost[] {
+		const chain: MicroblogPost[] = [];
+		let currentParent = parentPost;
+		
+		while (true) {
+			const directReplies = Array.from(postMap.values())
+				.filter(post => post.replyTo === currentParent.file.name)
+				.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
+			
+			if (directReplies.length === 0) break;
+			
+			// For simplicity, follow the first reply in each chain
+			const nextReply = directReplies[0];
+			chain.push(nextReply);
+			currentParent = nextReply;
+		}
+		
+		return chain;
+	}
+
+	private organizeIntoThreadsWithoutLimits(posts: MicroblogPost[]): MicroblogPost[] {
+		const postMap = new Map<string, MicroblogPost>();
+		const threadedPosts: MicroblogPost[] = [];
+		
+		posts.forEach(post => postMap.set(post.file.name, post));
+		
+		for (const post of posts) {
+			if (!post.replyTo) {
+				const threadId = post.file.name;
+				post.threadDepth = 0;
+				post.threadId = threadId;
+				threadedPosts.push(post);
+				this.addAllRepliesToThread(post, postMap, threadedPosts, 1, threadId);
+			}
+		}
+		
+		return threadedPosts;
+	}
+	
+	private addAllRepliesToThread(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>, threadedPosts: MicroblogPost[], depth: number, threadId: string) {
 		const replies = Array.from(postMap.values())
 			.filter(post => post.replyTo === parentPost.file.name)
 			.sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
 		
 		for (const reply of replies) {
 			reply.threadDepth = depth;
+			reply.threadId = threadId;
 			threadedPosts.push(reply);
-			this.addRepliesToThread(reply, postMap, threadedPosts, depth + 1);
+			this.addAllRepliesToThread(reply, postMap, threadedPosts, depth + 1, threadId);
 		}
 	}
 
@@ -271,6 +402,29 @@ class MicroblogTimelineModal extends Modal {
 		const timelineContainer = contentEl.createDiv('microblog-timeline');
 		
 		for (const post of posts) {
+			if (post.isOverflowIndicator) {
+				// Render overflow indicator
+				const overflowEl = timelineContainer.createDiv('microblog-overflow');
+				
+				if (post.threadDepth && post.threadDepth > 0) {
+					overflowEl.style.marginLeft = `${post.threadDepth * 20}px`;
+					overflowEl.style.paddingLeft = '10px';
+				}
+				
+				const indicatorEl = overflowEl.createEl('button', {
+					text: `${post.hiddenCount} more in thread`,
+					cls: 'microblog-expand-button'
+				});
+				
+				indicatorEl.onclick = () => {
+					if (post.threadId) {
+						this.expandThread(post.threadId, timelineContainer);
+					}
+				};
+				
+				continue;
+			}
+			
 			const postEl = timelineContainer.createDiv('microblog-post');
 			
 			if (post.threadDepth && post.threadDepth > 0) {
@@ -286,6 +440,60 @@ class MicroblogTimelineModal extends Modal {
 			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
 			if (post.type === 'reply' && post.replyTo) {
 				// Check if the replied-to post exists in our posts collection
+				const replyToExists = posts.some(p => p.file.name === post.replyTo);
+				if (!replyToExists) {
+					typeEl.setText('reply to [missing post]');
+				} else {
+					typeEl.setText(post.type);
+				}
+			} else {
+				typeEl.setText(post.type);
+			}
+			
+			const contentEl = postEl.createDiv('microblog-content');
+			contentEl.innerHTML = this.renderMarkdown(post.content);
+			
+			const actionsEl = postEl.createDiv('microblog-actions');
+			const openBtn = actionsEl.createEl('button', {text: 'Open'});
+			openBtn.onclick = () => {
+				this.app.workspace.getLeaf().openFile(post.file);
+				this.close();
+			};
+		}
+	}
+
+	private async expandThread(threadId: string, timelineContainer: HTMLElement) {
+		// For now, simply rebuild the timeline without limits
+		// TODO: Add more sophisticated state management for per-thread expansion
+		const {contentEl} = this;
+		contentEl.empty();
+		
+		contentEl.createEl('h2', {text: 'Microblog Timeline'});
+		
+		const posts = await this.plugin.getMicroblogPostsWithoutLimits();
+		
+		if (posts.length === 0) {
+			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
+			return;
+		}
+
+		const newTimelineContainer = contentEl.createDiv('microblog-timeline');
+		
+		for (const post of posts) {
+			const postEl = newTimelineContainer.createDiv('microblog-post');
+			
+			if (post.threadDepth && post.threadDepth > 0) {
+				postEl.style.marginLeft = `${post.threadDepth * 20}px`;
+				postEl.style.borderLeft = '2px solid #444';
+				postEl.style.paddingLeft = '10px';
+			}
+			
+			const headerEl = postEl.createDiv('microblog-header');
+			const dateEl = headerEl.createSpan('microblog-date');
+			dateEl.setText(new Date(post.created).toLocaleString());
+			
+			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
+			if (post.type === 'reply' && post.replyTo) {
 				const replyToExists = posts.some(p => p.file.name === post.replyTo);
 				if (!replyToExists) {
 					typeEl.setText('reply to [missing post]');
