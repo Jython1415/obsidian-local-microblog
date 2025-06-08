@@ -10,10 +10,6 @@ export interface MicroblogPost {
 	replyCount?: number;
 	directReplies?: MicroblogPost[];
 	hasErrors?: boolean;
-	threadDepth?: number;
-	isOverflowIndicator?: boolean;
-	hiddenCount?: number;
-	threadId?: string;
 }
 
 interface LocalMicroblogSettings {
@@ -151,7 +147,12 @@ Reply to:
 		}
 	}
 
-	async getMicroblogPosts(): Promise<MicroblogPost[]> {
+	/**
+	 * Gets microblog posts formatted for Timeline View display.
+	 * Returns only top-level posts with reply count metadata.
+	 * For complete thread data, use getCompleteThreadData().
+	 */
+	async getTimelinePosts(): Promise<MicroblogPost[]> {
 		const files = this.app.vault.getMarkdownFiles();
 		const microblogPosts: MicroblogPost[] = [];
 
@@ -177,10 +178,15 @@ Reply to:
 			new Date(b.created).getTime() - new Date(a.created).getTime()
 		);
 
-		return this.organizeIntoThreads(sortedPosts);
+		return this.organizeForTimeline(sortedPosts);
 	}
 
-	async getMicroblogPostsWithoutLimits(): Promise<MicroblogPost[]> {
+	/**
+	 * Gets complete microblog thread data for Post View display.
+	 * Returns all posts with full threading relationships.
+	 * For Timeline View, use getTimelinePosts().
+	 */
+	async getCompleteThreadData(): Promise<MicroblogPost[]> {
 		const files = this.app.vault.getMarkdownFiles();
 		const microblogPosts: MicroblogPost[] = [];
 
@@ -206,12 +212,17 @@ Reply to:
 			new Date(b.created).getTime() - new Date(a.created).getTime()
 		);
 
-		return this.organizeIntoThreadsWithoutLimits(sortedPosts);
+		return this.organizeCompleteThreads(sortedPosts);
 	}
 
-	private organizeIntoThreads(posts: MicroblogPost[]): MicroblogPost[] {
+	/**
+	 * Organizes posts for Timeline View display.
+	 * Adds reply metadata to top-level posts but does not create threaded display.
+	 * Timeline View shows only top-level posts with reply counts.
+	 */
+	private organizeForTimeline(posts: MicroblogPost[]): MicroblogPost[] {
 		const postMap = new Map<string, MicroblogPost>();
-		const threadedPosts: MicroblogPost[] = [];
+		const timelinePosts: MicroblogPost[] = [];
 		const processedPosts = new Set<string>();
 		
 		// First pass: build post map and detect orphaned/problematic posts
@@ -268,86 +279,14 @@ Reply to:
 		// Fourth pass: collect top-level posts (including error-promoted ones)
 		for (const post of posts) {
 			if (!post.replyTo) {
-				const threadId = post.file.name;
-				post.threadDepth = 0;
-				post.threadId = threadId;
-				threadedPosts.push(post);
-				this.addRepliesToThreadWithLimits(post, postMap, threadedPosts, 1, threadId);
+				timelinePosts.push(post);
 			}
 		}
 		
-		return threadedPosts;
+		return timelinePosts;
 	}
 	
-	private addRepliesToThreadWithLimits(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>, threadedPosts: MicroblogPost[], depth: number, threadId: string) {
-		const allReplies = this.getAllRepliesInChain(parentPost, postMap);
-		
-		if (allReplies.length === 0) return;
-		
-		const maxVisibleDepth = 3;
-		
-		if (allReplies.length <= maxVisibleDepth) {
-			// Show all replies normally
-			for (const reply of allReplies) {
-				reply.threadDepth = depth + allReplies.indexOf(reply);
-				reply.threadId = threadId;
-				threadedPosts.push(reply);
-			}
-		} else {
-			// Show first reply, overflow indicator, then last 2 replies
-			const firstReply = allReplies[0];
-			const lastTwoReplies = allReplies.slice(-2);
-			const hiddenCount = allReplies.length - 3;
-			
-			// Add first reply
-			firstReply.threadDepth = depth;
-			firstReply.threadId = threadId;
-			threadedPosts.push(firstReply);
-			
-			// Add overflow indicator
-			const overflowIndicator: MicroblogPost = {
-				file: parentPost.file, // Dummy file reference
-				created: '',
-				type: 'post',
-				content: '',
-				threadDepth: depth + 1,
-				isOverflowIndicator: true,
-				hiddenCount: hiddenCount,
-				threadId: threadId
-			};
-			threadedPosts.push(overflowIndicator);
-			
-			// Add last two replies
-			lastTwoReplies.forEach((reply, index) => {
-				reply.threadDepth = depth + 2 + index;
-				reply.threadId = threadId;
-				threadedPosts.push(reply);
-			});
-		}
-	}
 	
-	private getAllRepliesInChain(parentPost: MicroblogPost, postMap: Map<string, MicroblogPost>): MicroblogPost[] {
-		// This method is now deprecated in favor of the directReplies structure
-		// but keeping for backward compatibility during transition
-		if (parentPost.directReplies && parentPost.directReplies.length > 0) {
-			// Return only the first reply chain for legacy overflow logic
-			const chain: MicroblogPost[] = [];
-			let currentPost = parentPost.directReplies[0];
-			
-			while (currentPost) {
-				chain.push(currentPost);
-				if (currentPost.directReplies && currentPost.directReplies.length > 0) {
-					currentPost = currentPost.directReplies[0];
-				} else {
-					break;
-				}
-			}
-			
-			return chain;
-		}
-		
-		return [];
-	}
 
 	private detectCircularReference(post: MicroblogPost, allPosts: MicroblogPost[]): boolean {
 		const visited = new Set<string>();
@@ -376,7 +315,12 @@ Reply to:
 		return false;
 	}
 
-	private organizeIntoThreadsWithoutLimits(posts: MicroblogPost[]): MicroblogPost[] {
+	/**
+	 * Organizes posts for complete thread display in Post View.
+	 * Creates full threading relationships for detailed thread navigation.
+	 * For Timeline View, use organizeForTimeline().
+	 */
+	private organizeCompleteThreads(posts: MicroblogPost[]): MicroblogPost[] {
 		const postMap = new Map<string, MicroblogPost>();
 		const threadedPosts: MicroblogPost[] = [];
 		
@@ -526,8 +470,8 @@ class MicroblogTimelineModal extends Modal {
 	}
 
 	private async loadAndDisplayCurrentView() {
-		this.allPosts = await this.plugin.getMicroblogPosts();
-		this.allPostsComplete = await this.plugin.getMicroblogPostsWithoutLimits();
+		this.allPosts = await this.plugin.getTimelinePosts();
+		this.allPostsComplete = await this.plugin.getCompleteThreadData();
 		
 		if (this.currentView === 'timeline') {
 			this.displayTimeline();
