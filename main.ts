@@ -513,6 +513,7 @@ class MicroblogTimelineModal extends Modal {
 	private currentView: 'timeline' | 'post' = 'timeline';
 	private focusedPost: MicroblogPost | null = null;
 	private allPosts: MicroblogPost[] = [];
+	private allPostsComplete: MicroblogPost[] = [];
 	private navigationStack: MicroblogPost[] = [];
 
 	constructor(app: App, plugin: LocalMicroblogPlugin) {
@@ -526,6 +527,7 @@ class MicroblogTimelineModal extends Modal {
 
 	private async loadAndDisplayCurrentView() {
 		this.allPosts = await this.plugin.getMicroblogPosts();
+		this.allPostsComplete = await this.plugin.getMicroblogPostsWithoutLimits();
 		
 		if (this.currentView === 'timeline') {
 			this.displayTimeline();
@@ -709,9 +711,13 @@ class MicroblogTimelineModal extends Modal {
 		const visited = new Set<string>(); // Prevent infinite loops
 		
 		// Build chain going backwards to root, but don't include the focused post itself
-		while (currentPost.replyTo && !visited.has(currentPost.file.name)) {
+		while (currentPost.replyTo) {
+			if (visited.has(currentPost.file.name)) {
+				break; // Circular reference detected, stop here
+			}
 			visited.add(currentPost.file.name);
-			const parentPost = this.allPosts.find(p => p.file.name === currentPost.replyTo);
+			
+			const parentPost = this.allPostsComplete.find(p => p.file.name === currentPost.replyTo);
 			if (!parentPost) {
 				break; // Orphaned post, chain ends
 			}
