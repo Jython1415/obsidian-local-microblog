@@ -526,66 +526,54 @@ class MicroblogTimelineModal extends Modal {
 		
 		contentEl.createEl('h2', {text: 'Microblog Timeline'});
 		
-		const posts = await this.plugin.getMicroblogPosts();
+		const allPosts = await this.plugin.getMicroblogPosts();
 		
-		if (posts.length === 0) {
+		// Filter to top-level posts only (including error-promoted posts)
+		const topLevelPosts = allPosts.filter(post => !post.replyTo);
+		
+		if (topLevelPosts.length === 0) {
 			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
 			return;
 		}
 
 		const timelineContainer = contentEl.createDiv('microblog-timeline');
 		
-		for (const post of posts) {
-			if (post.isOverflowIndicator) {
-				// Render overflow indicator
-				const overflowEl = timelineContainer.createDiv('microblog-overflow');
-				
-				if (post.threadDepth && post.threadDepth > 0) {
-					overflowEl.style.marginLeft = `${post.threadDepth * 20}px`;
-					overflowEl.style.paddingLeft = '10px';
-				}
-				
-				const indicatorEl = overflowEl.createEl('button', {
-					text: `${post.hiddenCount} more in thread`,
-					cls: 'microblog-expand-button'
-				});
-				
-				indicatorEl.onclick = () => {
-					if (post.threadId) {
-						this.expandThread(post.threadId, timelineContainer);
-					}
-				};
-				
-				continue;
-			}
-			
+		for (const post of topLevelPosts) {
 			const postEl = timelineContainer.createDiv('microblog-post');
-			
-			if (post.threadDepth && post.threadDepth > 0) {
-				postEl.style.marginLeft = `${post.threadDepth * 20}px`;
-				postEl.style.borderLeft = '2px solid #444';
-				postEl.style.paddingLeft = '10px';
-			}
 			
 			const headerEl = postEl.createDiv('microblog-header');
 			const dateEl = headerEl.createSpan('microblog-date');
 			dateEl.setText(new Date(post.created).toLocaleString());
 			
 			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
-			if (post.type === 'reply' && post.replyTo) {
-				// Check if the replied-to post exists in our posts collection
-				const replyToExists = posts.some(p => p.file.name === post.replyTo);
-				if (!replyToExists) {
-					typeEl.setText('reply to [missing post]');
-				} else {
-					typeEl.setText(post.type);
-				}
-			} else {
-				typeEl.setText(post.type);
+			typeEl.setText(post.type);
+			
+			// Add error indicator if post has errors
+			if (post.hasErrors) {
+				const errorEl = headerEl.createSpan('microblog-error');
+				errorEl.setText(' [data issue]');
+				errorEl.style.color = '#ff6b6b';
+				errorEl.style.fontSize = '0.8em';
 			}
 			
 			const contentEl = postEl.createDiv('microblog-content');
 			contentEl.innerHTML = this.renderMarkdown(post.content);
+			
+			// Display reply count
+			const replyCountEl = postEl.createDiv('microblog-reply-count');
+			const replyCount = post.replyCount || 0;
+			let replyText = '';
+			if (replyCount === 0) {
+				replyText = '0 replies';
+			} else if (replyCount >= 100) {
+				replyText = '99+ replies';
+			} else {
+				replyText = `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`;
+			}
+			replyCountEl.setText(replyText);
+			replyCountEl.style.color = '#666';
+			replyCountEl.style.fontSize = '0.9em';
+			replyCountEl.style.marginTop = '8px';
 			
 			const actionsEl = postEl.createDiv('microblog-actions');
 			const openBtn = actionsEl.createEl('button', {text: 'Open'});
@@ -597,57 +585,9 @@ class MicroblogTimelineModal extends Modal {
 	}
 
 	private async expandThread(threadId: string, timelineContainer: HTMLElement) {
-		// For now, simply rebuild the timeline without limits
-		// TODO: Add more sophisticated state management for per-thread expansion
-		const {contentEl} = this;
-		contentEl.empty();
-		
-		contentEl.createEl('h2', {text: 'Microblog Timeline'});
-		
-		const posts = await this.plugin.getMicroblogPostsWithoutLimits();
-		
-		if (posts.length === 0) {
-			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
-			return;
-		}
-
-		const newTimelineContainer = contentEl.createDiv('microblog-timeline');
-		
-		for (const post of posts) {
-			const postEl = newTimelineContainer.createDiv('microblog-post');
-			
-			if (post.threadDepth && post.threadDepth > 0) {
-				postEl.style.marginLeft = `${post.threadDepth * 20}px`;
-				postEl.style.borderLeft = '2px solid #444';
-				postEl.style.paddingLeft = '10px';
-			}
-			
-			const headerEl = postEl.createDiv('microblog-header');
-			const dateEl = headerEl.createSpan('microblog-date');
-			dateEl.setText(new Date(post.created).toLocaleString());
-			
-			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
-			if (post.type === 'reply' && post.replyTo) {
-				const replyToExists = posts.some(p => p.file.name === post.replyTo);
-				if (!replyToExists) {
-					typeEl.setText('reply to [missing post]');
-				} else {
-					typeEl.setText(post.type);
-				}
-			} else {
-				typeEl.setText(post.type);
-			}
-			
-			const contentEl = postEl.createDiv('microblog-content');
-			contentEl.innerHTML = this.renderMarkdown(post.content);
-			
-			const actionsEl = postEl.createDiv('microblog-actions');
-			const openBtn = actionsEl.createEl('button', {text: 'Open'});
-			openBtn.onclick = () => {
-				this.app.workspace.getLeaf().openFile(post.file);
-				this.close();
-			};
-		}
+		// This method is deprecated in Phase 4B - no more thread expansion in timeline
+		// Will be replaced with Post View navigation in Phase 4C
+		new Notice('Thread expansion will be replaced with Post View navigation in next update');
 	}
 
 	private renderMarkdown(content: string): string {
