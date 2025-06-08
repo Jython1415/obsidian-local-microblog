@@ -1,9 +1,41 @@
-import { createMockTFile, createMockMetadata } from '../mocks/obsidian-api';
-import type { MicroblogPost } from '../../main';
+import { createMockTFile, createMockCachedMetadata } from '../mocks/obsidian-api';
+import type { MicroblogPost } from '../../main.ts';
 
 /**
  * Test data generators for microblog posts
  */
+
+/**
+ * Generate a test MicroblogPost with the given options
+ */
+export function generateTestPost(options: {
+  filename: string;
+  type?: 'post' | 'reply' | 'quote';
+  created?: string;
+  replyTo?: string;
+  quoteTo?: string;
+  content?: string;
+}): MicroblogPost {
+  const {
+    filename,
+    type = 'post',
+    created = new Date('2024-01-01T10:00:00.000Z').toISOString(),
+    replyTo,
+    quoteTo,
+    content = '# Test content'
+  } = options;
+
+  const file = createMockTFile(filename);
+
+  return {
+    file,
+    created,
+    type,
+    replyTo,
+    quoteTo,
+    content
+  };
+}
 
 export function createTestPost(options: {
   filename: string;
@@ -31,7 +63,7 @@ export function createTestPost(options: {
   if (quoteTo) frontmatter.lm_quote = quoteTo;
 
   const file = createMockTFile(filename);
-  const metadata = createMockMetadata(frontmatter);
+  const metadata = createMockCachedMetadata(frontmatter);
 
   return { file, metadata, content };
 }

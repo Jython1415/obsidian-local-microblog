@@ -10,5 +10,10 @@ export default defineConfig({
       reporter: ['text', 'html'],
       exclude: ['tests/**', 'node_modules/**', 'related/**']
     }
+  },
+  resolve: {
+    alias: {
+      'obsidian': './tests/mocks/obsidian-api.ts'
+    }
   }
 });

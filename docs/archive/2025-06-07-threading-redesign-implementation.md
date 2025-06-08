@@ -100,11 +100,12 @@ interface MicroblogPost {
 **Goal:** Fix thread organization to capture all branches + robust error handling
 
 **Core Changes:**
-1. Modify `organizeIntoThreads()` to collect ALL direct replies (not just first)
-2. Add `replyCount` calculation (direct children only)
-3. Build complete reply tree structure
-4. Remove compression/overflow logic
-5. Update `MicroblogPost` interface with `replyCount` and `directReplies[]`
+1. ✅ COMPLETED: Removed overflow logic and compression algorithms
+2. ✅ COMPLETED: Added `replyCount` calculation (direct children only)
+3. ✅ COMPLETED: Built complete reply tree structure
+4. ✅ COMPLETED: Updated `MicroblogPost` interface with `replyCount` and `directReplies[]`
+5. ✅ COMPLETED: Implemented `organizeForTimeline()` for Timeline View
+6. ✅ COMPLETED: Implemented `organizeCompleteThreads()` for Post View
 
 **Error Handling (treat as top-level posts):**
 - Orphaned replies (missing parent file)
@@ -119,11 +120,11 @@ interface MicroblogPost {
 **Goal:** Clean timeline showing only top-level posts with reply counts
 
 **Implementation:**
-1. Filter to posts without `lm_reply` (plus error-promoted posts)
-2. Display reply counts: "0 replies", "5 replies", "99+ replies" (cap at 99+)
-3. Add click handlers for Post View navigation
-4. Remove nested display logic
-5. Add refresh button for later real-time updates
+1. ✅ COMPLETED: Filter to posts without `lm_reply` (plus error-promoted posts)
+2. ✅ COMPLETED: Display reply counts: "0 replies", "5 replies", "99+ replies" (cap at 99+)
+3. ✅ COMPLETED: Add click handlers for Post View navigation
+4. ✅ COMPLETED: Remove nested display logic
+5. ✅ COMPLETED: Renamed `MicroblogTimelineModal` to `MicroblogModal`
 
 **Test Criteria:** Clean list, accurate counts, all conversations accessible
 
@@ -131,12 +132,12 @@ interface MicroblogPost {
 **Goal:** Context-aware post view with full navigation
 
 **Implementation:**
-1. Replace timeline content (not separate modal)
-2. Show full context chain above focused post (no depth limits)
-3. Visual focus indicators for current post
-4. Show all direct replies below, chronologically sorted
-5. Navigation between posts with back button to timeline
-6. Handle missing context (child becomes top-level)
+1. ✅ COMPLETED: Replace timeline content (not separate modal)
+2. ✅ COMPLETED: Show full context chain above focused post (no depth limits)
+3. ✅ COMPLETED: Visual focus indicators for current post
+4. ✅ COMPLETED: Show all direct replies below, chronologically sorted
+5. ✅ COMPLETED: Navigation between posts with back button to timeline
+6. ✅ COMPLETED: Handle missing context (child becomes top-level)
 
 **Test Criteria:** All conversations discoverable, clear visual hierarchy
 
@@ -144,11 +145,11 @@ interface MicroblogPost {
 **Goal:** Track view state and navigation during modal session
 
 **Implementation:**
-1. Track current view mode (Timeline vs Post View)
-2. Maintain navigation stack for back button functionality
-3. Store focused post ID when in Post View
-4. Handle navigation loops with proper stack management
-5. Reset state when modal closes (no persistence between sessions)
+1. ✅ COMPLETED: Track current view mode (Timeline vs Post View)
+2. ✅ COMPLETED: Maintain navigation stack for back button functionality
+3. ✅ COMPLETED: Store focused post ID when in Post View
+4. ✅ COMPLETED: Handle navigation loops with proper stack management
+5. ✅ COMPLETED: Reset state when modal closes (no persistence between sessions)
 
 **Test Criteria:** Smooth navigation, proper back button behavior
 
@@ -169,9 +170,9 @@ interface MicroblogPost {
 ## Technical Benefits
 
 **Simplified Logic:**
-- No compression algorithms
-- Clear parent-child relationships
-- Natural tree traversal
+- ✅ COMPLETED: No compression algorithms (removed overflow logic)
+- ✅ COMPLETED: Clear parent-child relationships
+- ✅ COMPLETED: Natural tree traversal
 
 **Better Performance:**
 - Timeline loads minimal data

@@ -33,30 +33,26 @@ This document outlines the implementation plan for adding unit tests to the Obsi
 
 ### 2. Threading and Organization Logic (High Priority)
 
-**File: `main.ts` lines 212-281**
-- `organizeIntoThreads()` - core threading algorithm
-- `organizeIntoThreadsWithoutLimits()` - alternative threading logic
+**File: `main.ts` lines 223-287**
+- `organizeForTimeline()` - Timeline View organization
+- `organizeCompleteThreads()` - Post View organization with full threading
 - Error detection and handling (circular references, orphaned posts)
 
-**File: `main.ts` lines 352-377**
+**File: `main.ts` lines 291-316**
 - `detectCircularReference()` - circular reference detection
 - Self-reply detection
 
 ### 3. Reply Chain Processing (Medium Priority)
 
-**File: `main.ts` lines 282-327**
-- `addRepliesToThreadWithLimits()` - overflow logic
-- `getAllRepliesInChain()` - legacy chain building
-
-**File: `main.ts` lines 448-459**
-- `addAllRepliesToThread()` - complete thread building
+**File: `main.ts` lines 392-403**
+- `addAllRepliesToThread()` - complete thread building for Post View
 
 ### 4. Content Processing (Medium Priority)
 
-**File: `main.ts` lines 465-500**
-- Markdown content extraction
+**File: `main.ts` lines 405-444**
+- `isMicroblogPost()` - frontmatter validation
+- `extractContentFromMarkdown()` - content parsing logic
 - Frontmatter handling
-- Content sanitization
 
 ### 5. Post Creation Logic (Lower Priority)
 
@@ -95,11 +91,11 @@ tests/
 3. Test microblog post validation
 
 ### Phase 3: Threading Logic Tests
-1. **Refactor large functions into testable units**
-2. Test basic threading organization
+1. Test Timeline View organization (`organizeForTimeline()`)
+2. Test Post View threading (`organizeCompleteThreads()`)
 3. Test circular reference detection
 4. Test orphaned post handling
-5. Test overflow/limit logic
+5. Test error promotion to top-level posts
 6. **Make private methods public for testing**
 
 ### Phase 4: Integration-Style Tests

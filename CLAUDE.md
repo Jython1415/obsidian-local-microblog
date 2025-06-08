@@ -9,6 +9,7 @@
 
 ### Git Workflow
 - Make atomic commits for each logical change
+- Clean up git repository by committing work in atomic commits after doing a chunk of work
 - **Do NOT push without explicit user confirmation**
 - Follow the pattern: make changes � commit � wait for push confirmation
 
