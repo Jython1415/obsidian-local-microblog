@@ -510,6 +510,10 @@ Reply to:
 
 class MicroblogTimelineModal extends Modal {
 	plugin: LocalMicroblogPlugin;
+	private currentView: 'timeline' | 'post' = 'timeline';
+	private focusedPost: MicroblogPost | null = null;
+	private allPosts: MicroblogPost[] = [];
+	private navigationStack: MicroblogPost[] = [];
 
 	constructor(app: App, plugin: LocalMicroblogPlugin) {
 		super(app);
@@ -517,19 +521,30 @@ class MicroblogTimelineModal extends Modal {
 	}
 
 	onOpen() {
-		this.displayTimeline();
+		this.loadAndDisplayCurrentView();
+	}
+
+	private async loadAndDisplayCurrentView() {
+		this.allPosts = await this.plugin.getMicroblogPosts();
+		
+		if (this.currentView === 'timeline') {
+			this.displayTimeline();
+		} else if (this.currentView === 'post' && this.focusedPost) {
+			this.displayPostView(this.focusedPost);
+		}
 	}
 
 	async displayTimeline() {
 		const {contentEl} = this;
 		contentEl.empty();
+		this.currentView = 'timeline';
+		this.focusedPost = null;
+		this.navigationStack = [];
 		
 		contentEl.createEl('h2', {text: 'Microblog Timeline'});
 		
-		const allPosts = await this.plugin.getMicroblogPosts();
-		
 		// Filter to top-level posts only (including error-promoted posts)
-		const topLevelPosts = allPosts.filter(post => !post.replyTo);
+		const topLevelPosts = this.allPosts.filter(post => !post.replyTo);
 		
 		if (topLevelPosts.length === 0) {
 			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
@@ -576,9 +591,233 @@ class MicroblogTimelineModal extends Modal {
 			replyCountEl.style.marginTop = '8px';
 			
 			const actionsEl = postEl.createDiv('microblog-actions');
-			const openBtn = actionsEl.createEl('button', {text: 'Open'});
+			const viewBtn = actionsEl.createEl('button', {text: 'View Thread'});
+			viewBtn.onclick = () => {
+				this.displayPostView(post);
+			};
+			
+			const openBtn = actionsEl.createEl('button', {text: 'Open File'});
 			openBtn.onclick = () => {
 				this.app.workspace.getLeaf().openFile(post.file);
+				this.close();
+			};
+		}
+	}
+
+	private displayPostView(focusedPost: MicroblogPost) {
+		const {contentEl} = this;
+		contentEl.empty();
+		this.currentView = 'post';
+		
+		// Add current focused post to navigation stack if it's different
+		if (this.focusedPost && this.focusedPost.file.name !== focusedPost.file.name) {
+			this.navigationStack.push(this.focusedPost);
+		}
+		
+		this.focusedPost = focusedPost;
+		
+		// Header with navigation buttons
+		const headerEl = contentEl.createDiv('post-view-header');
+		const navEl = headerEl.createDiv('navigation-buttons');
+		
+		// Back button (either to previous post or timeline)
+		if (this.navigationStack.length > 0) {
+			const backBtn = navEl.createEl('button', {text: '← Back'});
+			backBtn.onclick = () => {
+				const previousPost = this.navigationStack.pop()!;
+				this.focusedPost = previousPost;
+				this.displayPostView(previousPost);
+			};
+			backBtn.style.marginRight = '8px';
+		}
+		
+		const timelineBtn = navEl.createEl('button', {text: '← Back to Timeline'});
+		timelineBtn.onclick = () => {
+			this.displayTimeline();
+		};
+		
+		navEl.style.marginBottom = '16px';
+		
+		const titleEl = contentEl.createEl('h2', {text: 'Post View'});
+		
+		// Show context chain if this is a reply
+		if (focusedPost.replyTo) {
+			this.displayContextChain(focusedPost, contentEl);
+		}
+		
+		// Display the focused post
+		this.displayFocusedPost(focusedPost, contentEl);
+		
+		// Display direct replies
+		this.displayDirectReplies(focusedPost, contentEl);
+	}
+	
+	private displayContextChain(focusedPost: MicroblogPost, containerEl: HTMLElement) {
+		const contextEl = containerEl.createDiv('context-chain');
+		contextEl.createEl('h3', {text: 'Thread Context'});
+		
+		const chain = this.buildContextChain(focusedPost);
+		
+		if (chain.length === 0) {
+			const noContextEl = contextEl.createDiv('no-context');
+			noContextEl.setText('No context available (this may be an orphaned reply)');
+			noContextEl.style.color = '#666';
+			noContextEl.style.fontStyle = 'italic';
+			return;
+		}
+		
+		for (let i = 0; i < chain.length; i++) {
+			const post = chain[i];
+			const isLast = i === chain.length - 1;
+			
+			const contextPostEl = contextEl.createDiv('context-post');
+			if (!isLast) {
+				contextPostEl.style.opacity = '0.7';
+			}
+			
+			const headerEl = contextPostEl.createDiv('microblog-header');
+			const dateEl = headerEl.createSpan('microblog-date');
+			dateEl.setText(new Date(post.created).toLocaleString());
+			
+			const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
+			typeEl.setText(post.type);
+			
+			if (post.hasErrors) {
+				const errorEl = headerEl.createSpan('microblog-error');
+				errorEl.setText(' [data issue]');
+				errorEl.style.color = '#ff6b6b';
+				errorEl.style.fontSize = '0.8em';
+			}
+			
+			const contentEl = contextPostEl.createDiv('microblog-content');
+			contentEl.innerHTML = this.renderMarkdown(post.content);
+			
+			// Add visual connector except for last item
+			if (!isLast) {
+				const connectorEl = contextEl.createDiv('context-connector');
+				connectorEl.setText('↳ replies to');
+				connectorEl.style.margin = '8px 0';
+				connectorEl.style.color = '#666';
+				connectorEl.style.fontSize = '0.9em';
+			}
+		}
+	}
+	
+	private buildContextChain(post: MicroblogPost): MicroblogPost[] {
+		const chain: MicroblogPost[] = [];
+		let currentPost = post;
+		const visited = new Set<string>(); // Prevent infinite loops
+		
+		// Build chain going backwards to root, but don't include the focused post itself
+		while (currentPost.replyTo && !visited.has(currentPost.file.name)) {
+			visited.add(currentPost.file.name);
+			const parentPost = this.allPosts.find(p => p.file.name === currentPost.replyTo);
+			if (!parentPost) {
+				break; // Orphaned post, chain ends
+			}
+			chain.unshift(parentPost);
+			currentPost = parentPost;
+		}
+		
+		return chain;
+	}
+	
+	private displayFocusedPost(post: MicroblogPost, containerEl: HTMLElement) {
+		const focusedEl = containerEl.createDiv('focused-post');
+		focusedEl.createEl('h3', {text: 'Focused Post'});
+		
+		const postEl = focusedEl.createDiv('microblog-post focused');
+		postEl.style.border = '2px solid #007acc';
+		postEl.style.backgroundColor = '#f8f9fa';
+		postEl.style.color = '#333';
+		postEl.style.padding = '12px';
+		
+		const headerEl = postEl.createDiv('microblog-header');
+		const dateEl = headerEl.createSpan('microblog-date');
+		dateEl.setText(new Date(post.created).toLocaleString());
+		
+		const typeEl = headerEl.createSpan(`microblog-type microblog-${post.type}`);
+		typeEl.setText(post.type);
+		
+		if (post.hasErrors) {
+			const errorEl = headerEl.createSpan('microblog-error');
+			errorEl.setText(' [data issue]');
+			errorEl.style.color = '#ff6b6b';
+			errorEl.style.fontSize = '0.8em';
+		}
+		
+		const contentEl = postEl.createDiv('microblog-content');
+		contentEl.innerHTML = this.renderMarkdown(post.content);
+		
+		const actionsEl = postEl.createDiv('microblog-actions');
+		const openBtn = actionsEl.createEl('button', {text: 'Open File'});
+		openBtn.onclick = () => {
+			this.app.workspace.getLeaf().openFile(post.file);
+			this.close();
+		};
+	}
+	
+	private displayDirectReplies(post: MicroblogPost, containerEl: HTMLElement) {
+		const repliesEl = containerEl.createDiv('direct-replies');
+		
+		const replyCount = post.replyCount || 0;
+		if (replyCount === 0) {
+			repliesEl.createEl('h3', {text: 'No Replies'});
+			return;
+		}
+		
+		repliesEl.createEl('h3', {text: `Direct Replies (${replyCount})`});
+		
+		const replies = post.directReplies || [];
+		
+		for (const reply of replies) {
+			const replyEl = repliesEl.createDiv('microblog-post reply');
+			replyEl.style.marginLeft = '20px';
+			replyEl.style.borderLeft = '2px solid #ccc';
+			replyEl.style.paddingLeft = '12px';
+			
+			const headerEl = replyEl.createDiv('microblog-header');
+			const dateEl = headerEl.createSpan('microblog-date');
+			dateEl.setText(new Date(reply.created).toLocaleString());
+			
+			const typeEl = headerEl.createSpan(`microblog-type microblog-${reply.type}`);
+			typeEl.setText(reply.type);
+			
+			if (reply.hasErrors) {
+				const errorEl = headerEl.createSpan('microblog-error');
+				errorEl.setText(' [data issue]');
+				errorEl.style.color = '#ff6b6b';
+				errorEl.style.fontSize = '0.8em';
+			}
+			
+			const contentEl = replyEl.createDiv('microblog-content');
+			contentEl.innerHTML = this.renderMarkdown(reply.content);
+			
+			// Show reply count for this reply
+			const replyCountEl = replyEl.createDiv('microblog-reply-count');
+			const nestedReplyCount = reply.replyCount || 0;
+			let replyText = '';
+			if (nestedReplyCount === 0) {
+				replyText = '0 replies';
+			} else if (nestedReplyCount >= 100) {
+				replyText = '99+ replies';
+			} else {
+				replyText = `${nestedReplyCount} ${nestedReplyCount === 1 ? 'reply' : 'replies'}`;
+			}
+			replyCountEl.setText(replyText);
+			replyCountEl.style.color = '#666';
+			replyCountEl.style.fontSize = '0.9em';
+			replyCountEl.style.marginTop = '8px';
+			
+			const actionsEl = replyEl.createDiv('microblog-actions');
+			const viewBtn = actionsEl.createEl('button', {text: 'View Thread'});
+			viewBtn.onclick = () => {
+				this.displayPostView(reply);
+			};
+			
+			const openBtn = actionsEl.createEl('button', {text: 'Open File'});
+			openBtn.onclick = () => {
+				this.app.workspace.getLeaf().openFile(reply.file);
 				this.close();
 			};
 		}
