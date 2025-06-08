@@ -21,17 +21,12 @@
 
 ### Active Planning Documents (`/docs/`)
 - `roadmap.md` - Primary development roadmap with immediate next steps and long-term vision
-- `obsidian-ui-constraints.md` - Technical constraints and limitations for UI development
-- `timeline-creation-ux-design.md` - Planning document for timeline creation UX features
 
 ### Completed Implementations (`/docs/archive/`)
 - Organized by date: `YYYY-MM-DD-feature-description.md`
-- `2025-06-07-threading-redesign-implementation.md` - Complete threading system implementation
-- `2025-06-07-threading-display-design-superseded.md` - Superseded design questions
-- `replies-and-quotes-spec.md` - Original foundation spec for reply system
 
 ### Documentation Workflow
 - When planning major features: create detailed spec in `/docs/`
 - During implementation: keep spec updated with decisions and changes
 - After completion: move to `/docs/archive/` with date prefix
-- Roadmap tracks current status and next priorities
+- Roadmap tracks next priorities
