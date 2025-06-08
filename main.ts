@@ -27,7 +27,7 @@ export default class LocalMicroblogPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.addRibbonIcon('message-circle', 'Local Microblog', () => {
-			new MicroblogTimelineModal(this.app, this).open();
+			new MicroblogModal(this.app, this).open();
 		});
 
 		this.addCommand({
@@ -42,7 +42,7 @@ export default class LocalMicroblogPlugin extends Plugin {
 			id: 'open-microblog-timeline',
 			name: 'Open microblog timeline',
 			callback: () => {
-				new MicroblogTimelineModal(this.app, this).open();
+				new MicroblogModal(this.app, this).open();
 			}
 		});
 
@@ -452,12 +452,12 @@ Reply to:
 	}
 }
 
-class MicroblogTimelineModal extends Modal {
+class MicroblogModal extends Modal {
 	plugin: LocalMicroblogPlugin;
 	private currentView: 'timeline' | 'post' = 'timeline';
 	private focusedPost: MicroblogPost | null = null;
-	private allPosts: MicroblogPost[] = [];
-	private allPostsComplete: MicroblogPost[] = [];
+	private timelinePosts: MicroblogPost[] = [];
+	private completeThreadData: MicroblogPost[] = [];
 	private navigationStack: MicroblogPost[] = [];
 
 	constructor(app: App, plugin: LocalMicroblogPlugin) {
@@ -470,8 +470,8 @@ class MicroblogTimelineModal extends Modal {
 	}
 
 	private async loadAndDisplayCurrentView() {
-		this.allPosts = await this.plugin.getTimelinePosts();
-		this.allPostsComplete = await this.plugin.getCompleteThreadData();
+		this.timelinePosts = await this.plugin.getTimelinePosts();
+		this.completeThreadData = await this.plugin.getCompleteThreadData();
 		
 		if (this.currentView === 'timeline') {
 			this.displayTimeline();
@@ -490,7 +490,7 @@ class MicroblogTimelineModal extends Modal {
 		contentEl.createEl('h2', {text: 'Microblog Timeline'});
 		
 		// Filter to top-level posts only (including error-promoted posts)
-		const topLevelPosts = this.allPosts.filter(post => !post.replyTo && !post.isOverflowIndicator);
+		const topLevelPosts = this.timelinePosts.filter(post => !post.replyTo);
 		
 		if (topLevelPosts.length === 0) {
 			contentEl.createEl('p', {text: 'No microblog posts found. Create your first post!'});
@@ -661,7 +661,7 @@ class MicroblogTimelineModal extends Modal {
 			}
 			visited.add(currentPost.file.name);
 			
-			const parentPost = this.allPostsComplete.find(p => p.file.name === currentPost.replyTo);
+			const parentPost = this.completeThreadData.find(p => p.file.name === currentPost.replyTo);
 			if (!parentPost) {
 				break; // Orphaned post, chain ends
 			}
