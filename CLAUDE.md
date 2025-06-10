@@ -18,6 +18,11 @@
 - Keep functions focused and well-named
 - Maintain clear separation of concerns
 
+### Testing
+- Write tests for core business functionality along with the implementation (atomic commits)
+- Run the test suite frequently to avoid regressions
+- Keep tests simple
+
 ## Documentation Organization
 
 ### Active Planning Documents (`/docs/`)
