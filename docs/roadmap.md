@@ -4,7 +4,6 @@ Keep this a short and simple list-style roadmap
 
 ## Immediate Next Steps
 
-1. Update README
 1. Full implementation of quote post functionality
 1. Add ability to "reply" and "quote" from the modal
 
