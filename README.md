@@ -1,16 +1,18 @@
-# Obsidian Sample Plugin
+# Obsidian Local Microblog Plugin
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+This is a plugin I built in collaboration with Claude Code to allow me to develop ideas in the microblogging (e.g. Bluesky) format in a private and local setting. It's set up so that I can use it, but if you find it interesting, feel free to try to set it up for yourself too.
+
+## Features
+
+- Create microblog posts with frontmatter metadata
+- Support for threaded conversations (replies to posts)
+- Quote posts and reference other posts
+- Timeline view for chronological post browsing
+- Post view for complete thread visualization
+- Local file-based storage within your Obsidian vault
 
 This project uses TypeScript to provide type checking and documentation.
 The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
-
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
 
 ## First time developing plugins?
 
@@ -44,12 +46,13 @@ Quick starting guide for new plugin devs:
 - Make sure you have a `README.md` file in the root of your repo.
 - Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
 
-## How to use
+## Development Setup
 
-- Clone this repo.
+- Clone this repo to your `.obsidian/plugins/obsidian-local-microblog` folder.
 - Make sure your NodeJS is at least v16 (`node --version`).
 - `npm i` or `yarn` to install dependencies.
 - `npm run dev` to start compilation in watch mode.
+- Reload Obsidian and enable the plugin in settings.
 
 ## Manually installing the plugin
 
